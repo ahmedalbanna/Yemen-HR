@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "A staff member in the Yemeni HR system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "nationalId": { "type": "string" },
+        "governorate": { "type": "string" },
+        "hireDate": { "type": "string", "format": "date" },
+        "salary": { "type": "number" },
+        "position": { "type": "string" },
+        "department": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "on_leave", "terminated"] },
+        "leaveBalance": { "type": "number" },
+        "createdBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "nationalId", "governorate", "hireDate", "salary", "position", "department", "status", "createdBy"]
+    },
+    "LeaveRequest": {
+      "title": "Leave Request",
+      "description": "An employee request for time off",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "type": { "type": "string", "enum": ["annual", "sick", "unpaid", "special"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "reason": { "type": "string" },
+        "days": { "type": "number" },
+        "requestedBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "employeeName", "startDate", "endDate", "type", "status", "days", "requestedBy"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "User with managerial privileges",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "read_only"] }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/employees/{employeeDocId}": {
+      "schema": "Employee",
+      "description": "Collection of all employees"
+    },
+    "/leave_requests/{requestId}": {
+      "schema": "LeaveRequest",
+      "description": "Collection of all leave requests"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Users with administrative access"
+    }
+  }
+}

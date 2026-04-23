@@ -1,0 +1,114 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      // Logic: Only users in the /admins collection can manage HR data
+      // For bootstrapping, we skip the check IF it's the specific owner email
+      // But properly we should check the collection.
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validations ---
+
+    function isValidEmployee(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100
+          && data.nationalId is string && data.nationalId.size() <= 20
+          && data.governorate is string
+          && data.hireDate is string
+          && data.salary is number && data.salary >= 0
+          && data.position is string
+          && data.department is string
+          && data.status in ['active', 'on_leave', 'terminated']
+          && data.createdBy == request.auth.uid;
+    }
+
+    function isValidLeaveRequest(data) {
+      return data.employeeId is string && isValidId(data.employeeId)
+          && data.employeeName is string
+          && data.startDate is string
+          && data.endDate is string
+          && data.type in ['annual', 'sick', 'unpaid', 'special']
+          && data.status in ['pending', 'approved', 'rejected']
+          && data.days is number && data.days > 0
+          && data.requestedBy == request.auth.uid;
+    }
+
+    // --- Rules ---
+
+    match /admins/{adminId} {
+      // Only existing admins or the bootstrap email can manage admins
+      allow read: if isSignedIn();
+      allow write: if false; // Managed via Firebase Console or special script
+    }
+
+    match /employees/{employeeId} {
+      allow list: if isSignedIn() && isAdmin();
+      allow get: if isSignedIn() && (isAdmin() || existing().createdBy == request.auth.uid);
+      
+      allow create: if isSignedIn() && isEmailVerified() && isAdmin() 
+                    && isValidId(employeeId) && isValidEmployee(incoming())
+                    && incoming().keys().hasAll(['name', 'nationalId', 'governorate', 'hireDate', 'salary', 'position', 'department', 'status', 'createdBy'])
+                    && incoming().keys().size() >= 9;
+
+      allow update: if isSignedIn() && isAdmin() 
+                    && isValidEmployee(incoming())
+                    && (
+                      // Immortality check for core fields
+                      incoming().createdBy == existing().createdBy &&
+                      incoming().nationalId == existing().nationalId
+                    );
+      
+      allow delete: if isAdmin();
+    }
+
+    match /leave_requests/{requestId} {
+      allow list: if isSignedIn() && (isAdmin() || resource.data.requestedBy == request.auth.uid);
+      allow get: if isSignedIn() && (isAdmin() || existing().requestedBy == request.auth.uid);
+
+      allow create: if isSignedIn() && isEmailVerified() && isValidId(requestId) 
+                    && isValidLeaveRequest(incoming())
+                    && incoming().status == 'pending' // Force starting state
+                    && exists(/databases/$(database)/documents/employees/$(incoming().employeeId));
+
+      allow update: if isSignedIn() && (
+        // Admin action: Approve/Reject
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+        // Owner action: Edit pending request details
+        (existing().requestedBy == request.auth.uid && existing().status == 'pending' 
+         && isValidLeaveRequest(incoming())
+         && incoming().status == 'pending')
+      );
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().requestedBy == request.auth.uid && existing().status == 'pending');
+    }
+  }
+}
